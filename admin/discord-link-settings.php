@@ -14,12 +14,10 @@ function discord_link_bot_update($value) {
         array(
             'key' => 'membership_expiry',
             'name' => 'Membership Active',
-            'description' => 'Has an active membership in the ACC Vancouver Section',
-            'type' => '6',
+            'description' => 'ACC Vancouver Section membership not expired',
+            'type' => '5',
         )
     );
-
-    add_settings_error('discord_link', 'dl_debug', "Value: " . json_encode($value), 'info');
 
     $client_id = $value['discord_link_client_id'];
     $bot_token = $value['discord_link_token'];
