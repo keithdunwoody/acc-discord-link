@@ -2,7 +2,7 @@
 
 add_shortcode('discord_link_auth', 'shortcode_discord_link_auth');
 
-function start_discord_link_auth($user, $discord_opts)
+function start_discord_link_auth($user, $discord_opts, $join_text)
 {
     $discord_nonce = wp_create_nonce('discord_link');
 
@@ -15,7 +15,7 @@ function start_discord_link_auth($user, $discord_opts)
         'prompt' => 'consent',
     ));
 
-    return "<p><a href=\"http://discord.com/oauth2/authorize?{$discord_query}\">Join ACC Vancouver Discord</a></p>";
+    return "<a href=\"http://discord.com/oauth2/authorize?{$discord_query}\">{$join_text}</a>";
 }
 
 function finish_discord_link_auth($user, $discord_opts)
@@ -83,6 +83,13 @@ function finish_discord_link_auth($user, $discord_opts)
         return "Oops!  Wordpress error registering with Discord: " . $response->get_error_message();
     }
 
+    $response_code = wp_remote_retrieve_response_code($response);
+
+    if ($response_code == 429)
+    {
+        return "Too many people are trying to join Discord at the moment.  " .
+	       "Please try again in a few minutes.";
+    }
     if (wp_remote_retrieve_response_code($response) != 200)
     {
         return "Oops!  Remote server error registering with Discord: " . 
@@ -90,7 +97,7 @@ function finish_discord_link_auth($user, $discord_opts)
         "<li><b>Body:</b> " . wp_remote_retrieve_body($response) . "</li></ul>";
     }
 
-    update_user_meta($user->id,
+    update_user_meta($user->ID,
                      'discord_link_token',
                      $discord_token);
 
@@ -108,15 +115,22 @@ function shortcode_discord_link_auth($attrs)
     $discord_opts = get_option('discord_link');
     if (!$discord_opts)
     {
-        return "<p>ADMIN ERROR! Discord linking not configured</p>";
+        return "ADMIN ERROR! Discord linking not configured";
     }
 
     if (array_key_exists('code', $_GET))
     {
         return finish_discord_link_auth($user, $discord_opts);
     }
+    else if (!get_user_meta($user->ID,
+                            'discord_link_token'))
+    {
+        return start_discord_link_auth($user, $discord_opts,
+                                       "Link you ACC Vancouver account with Discord");
+    }
     else
     {
-        return start_discord_link_auth($user, $discord_opts);
+        return "You are registered with the ACC Vancouver Discord.  If it isn't working, you can " .
+            start_discord_link_auth($user, $discord_opts, "retry by clicking here") . ".";
     }
 }
