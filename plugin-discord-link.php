@@ -6,8 +6,10 @@
  *              based on their groups in Wordpress
  * Version: 0.1
  * Author: Keith Dunwoody
- * License: GPLv2
+ * License: BSD 2-Clause
  */
+
+ require_once plugin_dir_path(__FILE__) . "includes/discord-utils.php";
 
 if (is_admin())
 {
