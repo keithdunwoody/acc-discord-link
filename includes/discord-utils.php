@@ -33,7 +33,8 @@ class DiscordLink {
         else
         {
             $token =  get_user_meta($user->ID,
-                                   'discord_link_token');
+                                   'discord_link_token',
+                                   true);
 
             if (!$token)
             {
@@ -63,12 +64,16 @@ class DiscordLink {
 
         if (is_wp_error($response))
         {
-        return $response;
+            return $response;
         }
 
         if (wp_remote_retrieve_response_code($response) != 200)
         {
-        return new WP_Error('discord_token_error', 'Error from Discord server getting token.', $response);
+            return new WP_Error('discord_token_error', 'Error from Discord server getting token.',
+                array(
+                    'request' => $token_req,
+                    'response' => $response
+            ));
         }
 
         $token = json_decode(wp_remote_retrieve_body($response), true);
@@ -111,12 +116,16 @@ class DiscordLink {
     }
 }
 
-function discord_link_do_renewal($user_id)
+function discord_link_do_renewal($user_id, $verbose=false)
 {
     try {
         $user = get_user_by('id', $user_id);
 
         if (!$user) {
+            if ($verbose)
+            {
+                return "no such user";
+            }
             return;
         }
 
@@ -126,17 +135,39 @@ function discord_link_do_renewal($user_id)
 
         if (!$token) {
             // No token -- not registered with Discord so just return
+            if ($verbose)
+            {
+                return "no token for user";
+            }
             return;
         }
 
         if (is_wp_error($token)) {
+            $error_msg = "[discord-link] token fetch failed UID={$user_id} msg=" . $token->get_error_message();
+			if ($token->get_error_code() == 'discord_token_error')
+			{
+                $error_data = $token->get_error_data();
+				$error_msg .= "data= " . json_encode($error_data);
+			}
+            error_log($error_msg);
+            if ($verbose) {
+                return $error_msg;
+            }
             return;
         }
 
         $discord_link->update_metadata($user, $token);
+
+        if ($verbose)
+        {
+            return "Update success for UID={$user_id}";
+        }
     } catch (Exception $e) {
         // Just ignore.  Maybe log?
+        $error_msg = "[discord-link] exception in renewal: " . $e->getMessage();
+        error_log($error_msg);
+        return $error_msg;
     }
 }
 
-add_action('acc_membership_renewal', discord_link_do_renewal);
+add_action('acc_membership_renewal', 'discord_link_do_renewal');
