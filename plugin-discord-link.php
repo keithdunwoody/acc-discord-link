@@ -17,6 +17,4 @@ if (is_admin())
 }
 
 require_once plugin_dir_path(__FILE__) . "public/discord-link.php";
-
-include_once plugin_dir_path(__FILE__) . "test/test-renewal.php";
 ?>
