@@ -116,16 +116,16 @@ class DiscordLink {
     }
 }
 
-function discord_link_do_renewal($user_id, $verbose=false)
+/**
+ * Update user expiry date with Discord from acc_user_importer plugin
+ */
+function discord_link_do_renewal($user_id)
 {
     try {
         $user = get_user_by('id', $user_id);
 
         if (!$user) {
-            if ($verbose)
-            {
-                return "no such user";
-            }
+            acc_user_importer_Admin::log_local("[$user_id] no such user");
             return;
         }
 
@@ -135,24 +135,18 @@ function discord_link_do_renewal($user_id, $verbose=false)
 
         if (!$token) {
             // No token -- not registered with Discord so just return
-            if ($verbose)
-            {
-                return "no token for user";
-            }
+            acc_user_importer_Admin::log_local("[$user_id] not registered with Discord");
             return;
         }
 
         if (is_wp_error($token)) {
-            $error_msg = "[discord-link] token fetch failed UID={$user_id} msg=" . $token->get_error_message();
+            $error_msg = "Discord token fetch failed msg=" . $token->get_error_message();
 			if ($token->get_error_code() == 'discord_token_error')
 			{
                 $error_data = $token->get_error_data();
 				$error_msg .= "data= " . json_encode($error_data);
 			}
-            error_log($error_msg);
-            if ($verbose) {
-                return $error_msg;
-            }
+            acc_user_importer_Admin::log_local("[$user_id] $error_msg");
             return;
         }
 
@@ -160,13 +154,12 @@ function discord_link_do_renewal($user_id, $verbose=false)
 
         if ($verbose)
         {
-            return "Update success for UID={$user_id}";
+            acc_user_importer_Admin::log_local("[$user_id] Update success");
         }
     } catch (Exception $e) {
         // Just ignore.  Maybe log?
-        $error_msg = "[discord-link] exception in renewal: " . $e->getMessage();
-        error_log($error_msg);
-        return $error_msg;
+        acc_user_importer_Admin::log_local("[$user_id] exception in renewal: " . $e->getMessage());
+        return;
     }
 }
 

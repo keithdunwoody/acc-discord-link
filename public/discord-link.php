@@ -71,7 +71,7 @@ function shortcode_discord_link_auth($attrs)
     $user = wp_get_current_user();
     if (!$user->exists())
     {
-        auth_redirect();
+	return "The ACC Vancouver Discord is only open to ACC Vancouver Section members.  If you are a member, please log in to continue";
     }
 
     try {
@@ -88,7 +88,7 @@ function shortcode_discord_link_auth($attrs)
                             'discord_link_token'))
     {
         return start_discord_link_auth($user, $discord_link,
-                                       "Link you ACC Vancouver account with Discord");
+                                       "Link your ACC Vancouver account with Discord");
     }
     else
     {
