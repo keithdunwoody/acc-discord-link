@@ -4,7 +4,7 @@
  * Plugin Name: Discord Link
  * Description: Allows a discord server to give roles to users
  *              based on their groups in Wordpress
- * Version: 20231030
+ * Version: 20231210
  * Author: Keith Dunwoody
  * License: BSD 2-Clause
  */
