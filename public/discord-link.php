@@ -9,7 +9,7 @@ function start_discord_link_auth($user, $discord_link, $join_text)
     $discord_query = http_build_query(array(
         'response_type' => 'code',
         'client_id' => $discord_link->get_client_id(),
-        'scope' => 'role_connections.write',
+        'scope' => 'identify guilds.join',
         'state' => $discord_nonce,
         'redirect_uri' => get_permalink( get_the_ID() ),
         'prompt' => 'consent',
@@ -42,7 +42,7 @@ function finish_discord_link_auth($user, $discord_link)
         }
     }
 
-    $response = $discord_link->update_metadata($user, $discord_token);
+    $response = $discord_link->add_user($user, $discord_token);
 
     if (is_wp_error($response))
     {
@@ -56,14 +56,16 @@ function finish_discord_link_auth($user, $discord_link)
         return "Too many people are trying to join Discord at the moment.  " .
 	       "Please try again in a few minutes.";
     }
-    if (wp_remote_retrieve_response_code($response) != 200)
+    else if ($response_code >= 400)
     {
         return "Remote server error registering with Discord: " . 
         "<ul><li><b>Code:</b> " . wp_remote_retrieve_response_code($response) . "</li>" .
         "<li><b>Body:</b> " . wp_remote_retrieve_body($response) . "</li></ul>";
     }
 
-    return "Success!  You are now registered with ACC Vancouver Discord.";
+    $server_url = $discord_link->get_server_url();
+
+    return 'Successfully registered with Discord!';
 }
 
 function shortcode_discord_link_auth($attrs)
@@ -71,7 +73,7 @@ function shortcode_discord_link_auth($attrs)
     $user = wp_get_current_user();
     if (!$user->exists())
     {
-	return "The ACC Vancouver Discord is only open to ACC Vancouver Section members.  If you are a member, please log in to continue";
+	    return "The ACC Vancouver Discord is only open to ACC Vancouver Section members.  If you are a member, please log in to continue";
     }
 
     try {
@@ -92,7 +94,7 @@ function shortcode_discord_link_auth($attrs)
     }
     else
     {
-        return "You are registered with the ACC Vancouver Discord.  If it isn't working, you can " .
-            start_discord_link_auth($user, $discord_link, "retry by clicking here") . ".";
+        return "You are registered with the ACC Vancouver Discord.  Go to the next step.  If it isn't working, you can " .
+            start_discord_link_auth($user, $discord_link, "retry registering by clicking here") . ".";
     }
 }

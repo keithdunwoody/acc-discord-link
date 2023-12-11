@@ -20,48 +20,21 @@ function discord_link_bot_update($value) {
     );
 
     $client_id = $value['discord_link_client_id'];
-    $bot_token = $value['discord_link_token'];
 
     if (!$client_id)
     {
         add_settings_error('discord_link', 'dl_no_client_id', 'No client ID provided.');
     }
 
-    if (!$bot_token)
+    $client_secret = $value['discord_link_client_secret'];
+
+    if (!$client_secret)
     {
-        add_settings_error('discord_link', 'dl_no_token', 'No bot token provided.');
+        add_settings_error('discord_link', 'dl_no_client_secret', 'No client secret provided.');
     }
 
-    if (!$bot_token || !$client_id)
+    if (!$client_id || !$client_secret)
     {
-        return;
-    }
-
-    $role_connection_api = "https://discord.com/api/v10/applications/{$client_id}/role-connections/metadata";
-
-    $response = wp_remote_request($role_connection_api,
-                                  array( 
-                                    'method' => 'PUT',
-                                    'headers' => array(
-                                        'Content-Type' => 'application/json',
-                                        'Authorization' => "Bot {$bot_token}"
-                                    ),
-                                    'body' => json_encode($discord_metadata)
-                                    ));
-
-    if (!is_array($response) || is_wp_error($response))
-    {
-        add_settings_error('discord_link', 'dl_reg_error', 'Unknown error registering with Discord');
-        return;
-    }
-    
-    $response_code = wp_remote_retrieve_response_code($response);
-    
-    if ($response_code / 100 != 2)
-    {
-        add_settings_error('discord_link', 'dl_reg_error', 
-                           "Failed to register with Discord: Code {$response_code}: "
-                            . esc_html(wp_remote_retrieve_body($response)));
         return;
     }
 
@@ -82,15 +55,6 @@ function discord_link_opts_init() {
     );
 
     add_settings_field(
-        'discord_link_token',
-        __('Token', 'discord_link'),
-        'discord_link_field_cb',
-        'discord_link',
-        'discord_link_server',
-        array('label_for' => 'discord_link_token')
-    );
-
-    add_settings_field(
         'discord_link_client_id',
         __('Client ID', 'discord_link'),
         'discord_link_field_cb',
@@ -107,10 +71,63 @@ function discord_link_opts_init() {
         'discord_link_server',
         array('label_for' => 'discord_link_client_secret')
     );
+
+    add_settings_field(
+        'discord_link_token',
+        __('Token', 'discord_link'),
+        'discord_link_field_cb',
+        'discord_link',
+        'discord_link_server',
+        array('label_for' => 'discord_link_token')
+    );
+
+    add_settings_field(
+        'discord_link_client_guild',
+        __('Discord Server', 'discord_link'),
+        'discord_link_guild_cb',
+        'discord_link',
+        'discord_link_server',
+        array(
+            'label_for' => 'discord_link_guild'
+        )
+    );
+
+    add_settings_field(
+        'discord_link_client_role',
+        __('Member Role', 'discord_link'),
+        'discord_link_role_cb',
+        'discord_link',
+        'discord_link_server',
+        array(
+            'label_for' => 'discord_link_role'
+        )
+    );
 }
 
 add_action('admin_init', 'discord_link_opts_init');
 add_action('admin_menu', 'discord_link_options');
+
+function get_guild()
+{
+    static $guild = null;
+    static $get_guild_failed = false;
+
+    if ($guild || $get_guild_failed)
+    {
+        return $guild;
+    }
+
+    try {
+        $discord_link = new DiscordLink();
+
+        $guild = $discord_link->get_guild();
+    } catch (Exception $e) {
+        $guild = null;
+        $get_guild_failed = true;
+    }
+
+    return $guild;
+}
 
 function discord_link_server_cb( $args ) {
     ?>
@@ -129,16 +146,127 @@ function discord_link_field_cb( $args ) {
     <?php   
 }
 
+function discord_link_guild_cb( $args ) {
+    $options = get_option('discord_link');
+
+    $guild = get_guild();
+    
+    if (!$guild)
+    {
+        echo "None";
+    }
+    else if (is_wp_error($guild))
+    {
+        $response = $guild->get_error_data()['response'];
+        echo "Error getting server: <b>" . wp_remote_retrieve_response_code($response) . "</b> " .
+        esc_html(wp_remote_retrieve_body($response));
+        try {
+            $discord_link = new DiscordLink();
+    
+            $token = $discord_link->get_server_token();
+
+            echo "<br>";
+            echo "Authorization: " . $token['token_type'] . ' ' . $token['access_token'];
+            echo "<br>";
+            echo "Token: " . json_encode($token);
+        } catch (Exception $e) {}
+    }
+    else
+    {
+        echo $guild['name'];
+        ?>
+        <input type="hidden" 
+            id="<?php echo esc_attr( $args['label_for'] ); ?>"
+            name="discord_link[<?php echo esc_attr( $args['label_for'] ); ?>]"
+            value="<?php echo isset($options[$args['label_for']])?$options[$args['label_for']]:''; ?>"
+        >
+        <?php
+    }
+    
+    if (isset($options['discord_link_client_id']) &&
+        isset($options['discord_link_client_secret']))
+    {
+        $discord_query = http_build_query(array(
+            'response_type' => 'code',
+            'client_id' => $options['discord_link_client_id'],
+            'scope' => 'bot',
+            'state' => wp_create_nonce('discord_link'),
+            'redirect_uri' => plugin_dir_url( __FILE__ ) . 'register-bot.php',
+            'permissions' => 402653185,
+            'prompt' => 'consent',
+        ));
+        ?>
+         (<a href="http://discord.com/oauth2/authorize?<?php echo esc_attr($discord_query) ?>">Change Server</a>)
+        <?php
+    }
+}
+
+function discord_link_role_cb( $args ) {
+    $options = get_option('discord_link');
+
+    $guild = get_guild();
+
+    if (!$guild || is_wp_error($guild))
+    {
+        echo "No server";
+    }
+    else
+    {
+        ?>
+        <select 
+            id="<?php echo esc_attr( $args['label_for'] ); ?>"
+            name="discord_link[<?php echo esc_attr( $args['label_for'] ); ?>]">
+        <?php foreach($guild['roles'] as $role) { ?>
+            <option value="<?php echo $role['id']; ?>" <?php if ($options['discord_link_role'] == $role['id']) { echo "selected"; } ?> >
+                <?php echo $role['name']; ?>
+            </option>
+        <?php } ?>
+        </select>
+        <?php
+    }
+}
+
 function discord_link_opts_html()
 {
     // Check user capabilities
     if (!current_user_can('manage_options'))
     {
         return;
-    } 
+    }
     ?>
     <div class="wrap">
         <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+        <?php
+        $last_error = get_option('discord_link_error');
+
+        if ($last_error)
+        {
+            echo "<h3>Changing Server Notice</h3>";
+            if (is_wp_error($last_error))
+            {
+                if ($last_error->get_error_code() == 'discord_token_error') {
+                    $data = $last_error->get_error_data();
+                    $response = $data['response'];
+                    ?>
+                    <p>Remote error registering with Discord: 
+                        <ul>
+                            <li><b>Request:</b> <?php echo esc_html(json_encode($data['request'])); ?></li>
+                            <li><b>Code:</b>  <?php echo $response['code'] ?></li>
+                            <li><b>Body:</b>  <?php echo esc_html($response['body']) ?></li>
+                        </ul>
+                    </p>
+                    <?php
+                } else {
+                    echo "<p>Error getting Discord token: " . $last_error->get_error_message() . "</p>";
+                }
+            }
+            else
+            {
+                echo "<p>" . esc_html($last_error) . "</p>";
+            }
+            delete_option('discord_link_error');
+        }
+        ?>
         <form action="options.php" method="post">
             <?php
             // Output security fields for the registered settings

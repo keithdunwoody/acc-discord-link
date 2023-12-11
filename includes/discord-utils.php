@@ -18,6 +18,90 @@ class DiscordLink {
         return $this->opts['discord_link_client_id'];
     }
 
+    private function request_token($token_req)
+    {
+        $response = wp_remote_post("https://discord.com/api/oauth2/token", 
+        array(
+            'headers' => array(
+                'Content-Type' => 'application/x-www-form-urlencoded',
+                'Authorization' => 'Basic ' . base64_encode(
+                    $this->opts['discord_link_client_id'] . ':' . 
+                    $this->opts['discord_link_client_secret']
+                )
+            ),
+            'body' => $token_req
+        ));
+
+        if (is_wp_error($response))
+        {
+            return $response;
+        }
+
+        if (wp_remote_retrieve_response_code($response) != 200)
+        {
+            return new WP_Error('discord_token_error', 'Error from Discord server getting token.',
+                array(
+                    'request' => $token_req,
+                    'response' => $response
+            ));
+        }
+
+        return json_decode(wp_remote_retrieve_body($response), true);
+    }
+
+    public function get_server_token()
+    {
+        $token = $this->opts['discord_link_token'];
+
+        if (!$token || !is_string($token))
+        {
+            return null;
+        }
+
+        return array(
+            'token_type' => 'Bot',
+            'access_token' => $token
+        );
+    }
+
+    public function get_guild()
+    {
+        if (!array_key_exists('discord_link_guild', $this->opts))
+        {
+            return null;
+        }
+
+        $token = $this->get_server_token();
+
+        if (!$token)
+        {
+            return null;
+        }
+
+        $response = wp_remote_get('https://discord.com/api/guilds/' . $this->opts['discord_link_guild'],
+                                    array(
+                                        'headers' => array(
+                                            'Content-Type' => 'application/json',
+                                            'Authorization' => $token['token_type'] . ' ' . $token['access_token']
+                                    ))
+                                );
+
+        if (is_wp_error($response))
+        {
+            return $response;
+        }
+
+        if (wp_remote_retrieve_response_code($response) != 200)
+        {
+            return new WP_Error('discord_token_error', 'Error from Discord getting server info',
+                array(
+                    'response' => $response
+            ));
+        }
+
+        return json_decode(wp_remote_retrieve_body($response), true);
+    }
+
     public function get_token($user, $code = null)
     {
         if (!is_null($code))
@@ -54,31 +138,12 @@ class DiscordLink {
             );
         }
                 
-        $response = wp_remote_post("https://discord.com/api/oauth2/token", 
-        array(
-            'headers' => array(
-                'Content-Type' => 'application/x-www-form-urlencoded',
-            ),
-            'body' => $token_req
-        ));
+        $token = $this->request_token($token_req);
 
-        if (is_wp_error($response))
+        if (!is_wp_error($token))
         {
-            return $response;
+            $this->set_token($user, $token);
         }
-
-        if (wp_remote_retrieve_response_code($response) != 200)
-        {
-            return new WP_Error('discord_token_error', 'Error from Discord server getting token.',
-                array(
-                    'request' => $token_req,
-                    'response' => $response
-            ));
-        }
-
-        $token = json_decode(wp_remote_retrieve_body($response), true);
-
-        $this->set_token($user, $token);
 
         return $token;
     }
@@ -90,6 +155,90 @@ class DiscordLink {
         update_user_meta($user->ID,
                          'discord_link_token',
                          $token);
+    }
+
+    public function get_discord_user($token)
+    {
+        $response = wp_remote_get('https://discord.com/api/users/@me',
+                                  array(
+                                    'headers' => array(
+                                        'Content-Type' => 'application/json',
+                                        'Authorization' => $token['token_type'] . ' ' . $token['access_token']
+                                    )
+                                    ));
+        
+        if (is_wp_error($response))
+        {
+            return $response;
+        }
+        else if (wp_remote_retrieve_response_code($response) != 200)
+        {
+            return new WP_Error('discord_user_error', 'Error from Discord getting user info',
+                array(
+                    'response' => $response
+            ));
+        }
+        else
+        {
+            return json_decode(wp_remote_retrieve_body($response), true);
+        }
+    }
+
+    public function get_server_url()
+    {
+        return "https://discord.com/channels/" . $this->opts['discord_link_guild'];
+    }
+
+    public function add_user($user, $token)
+    {
+        $discord_user = $this->get_discord_user($token);
+
+        if (is_wp_error($discord_user))
+        {
+            return $discord_user;
+        }
+
+        $server_token = $this->get_server_token();
+
+        $add_user_req = array(
+            'access_token' => $token['access_token'],
+            'roles' => array( $this->opts['discord_link_role'] ),
+            'nick' => $user->display_name
+        );
+
+        $result = wp_remote_request('https://discord.com/api/guilds/' . $this->opts['discord_link_guild'] .
+                                      '/members/' . $discord_user['id'],
+                                     array(
+                                        'method' => 'PUT',
+                                        'headers' => array(
+                                            'Content-Type' => 'application/json',
+                                            'Authorization' => $server_token['token_type'] . ' ' . $server_token['access_token']
+                                        ),
+                                        'body' => json_encode($add_user_req)
+                                     ));
+
+        if (is_wp_error($result))
+        {
+            return $result;
+        }
+        else if (wp_remote_retrieve_response_code($result) == 204)
+        {
+            /* User already exists, update their roles & nickname */
+            unset($add_user_req['access_token']);
+
+            $result = wp_remote_request('https://discord.com/api/guilds/' . $this->opts['discord_link_guild'] .
+                                        '/members/' . $discord_user['id'],
+                                        array(
+                                            'method' => 'PATCH',
+                                            'headers' => array(
+                                                'Content-Type' => 'application/json',
+                                                'Authorization' => $server_token['token_type'] . ' ' . $server_token['access_token']
+                                            ),
+                                            'body' => json_encode($add_user_req)
+                                        ));
+        }
+
+        return $result;
     }
 
     public function update_metadata($user, $token)
@@ -115,52 +264,3 @@ class DiscordLink {
         return $response;
     }
 }
-
-/**
- * Update user expiry date with Discord from acc_user_importer plugin
- */
-function discord_link_do_renewal($user_id)
-{
-    try {
-        $user = get_user_by('id', $user_id);
-
-        if (!$user) {
-            acc_user_importer_Admin::log_local("[$user_id] no such user");
-            return;
-        }
-
-        $discord_link = new DiscordLink();
-
-        $token = $discord_link->get_token($user);
-
-        if (!$token) {
-            // No token -- not registered with Discord so just return
-            acc_user_importer_Admin::log_local("[$user_id] not registered with Discord");
-            return;
-        }
-
-        if (is_wp_error($token)) {
-            $error_msg = "Discord token fetch failed msg=" . $token->get_error_message();
-			if ($token->get_error_code() == 'discord_token_error')
-			{
-                $error_data = $token->get_error_data();
-				$error_msg .= "data= " . json_encode($error_data);
-			}
-            acc_user_importer_Admin::log_local("[$user_id] $error_msg");
-            return;
-        }
-
-        $discord_link->update_metadata($user, $token);
-
-        if ($verbose)
-        {
-            acc_user_importer_Admin::log_local("[$user_id] Update success");
-        }
-    } catch (Exception $e) {
-        // Just ignore.  Maybe log?
-        acc_user_importer_Admin::log_local("[$user_id] exception in renewal: " . $e->getMessage());
-        return;
-    }
-}
-
-add_action('acc_membership_renewal', 'discord_link_do_renewal');
